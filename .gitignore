@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editable install / build artifacts
+*.egg-info/
+build/
+dist/
+
+# Project outputs
+output/
+
+# Per-source line-segment cache (developer scratch, not packaged)
+lines.json
+
+# Models cached by ultralytics (developer scratch in repo root)
+/*.pt
+# Bundled production weights inside the package ARE tracked (D-04: shipped as package-data)
+!contador_pajaros/weights/*.pt
+
+# OS
+Thumbs.db
+.DS_Store
