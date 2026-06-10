@@ -1,6 +1,6 @@
 """Regression tests for ``duration <= 0`` meaning 'process the whole clip'.
 
-The headless counters (`count_vehicles_minframes`, `count_vehicles_linecrossing`)
+The headless counters (`count_minframes`, `count_linecrossing`)
 are used by live-bets' offline ingestion, which passes ``duration=0.0`` to mean
 "no wall-clock cap, count until the video ends". The old loop used a bare
 ``elapsed >= duration`` break, so ``duration=0`` stopped after a single frame —
@@ -16,9 +16,9 @@ from __future__ import annotations
 import sys
 import types
 
-from contador_coches.contar import (
-    count_vehicles_linecrossing,
-    count_vehicles_minframes,
+from contador_pajaros.contar import (
+    count_linecrossing,
+    count_minframes,
 )
 
 
@@ -105,7 +105,7 @@ def _fake_ultralytics_module(boxes_for_call) -> types.ModuleType:  # noqa: ANN00
 def test_minframes_duration_zero_processes_whole_clip(monkeypatch):
     """duration=0 must process every frame, not stop after the first.
 
-    A car (track id 1) is present in all 12 frames; with min_frames=5 it is only
+    A bird (track id 1) is present in all 12 frames; with min_frames=5 it is only
     counted if >=5 frames are processed. The old 1-frame cap yielded total=0.
     """
     num_frames = 12
@@ -113,10 +113,10 @@ def test_minframes_duration_zero_processes_whole_clip(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "ultralytics",
-        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[2])),  # 2 == car
+        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[14])),  # 14 == bird
     )
 
-    result = count_vehicles_minframes(
+    result = count_minframes(
         source="fake.mp4",
         duration=0.0,
         model_path="ignored.pt",
@@ -126,7 +126,7 @@ def test_minframes_duration_zero_processes_whole_clip(monkeypatch):
 
     assert result["frames_processed"] == num_frames
     assert result["total"] == 1
-    assert result["breakdown"]["car"] == 1
+    assert result["breakdown"]["bird"] == 1
 
 
 def test_minframes_negative_duration_is_also_unlimited(monkeypatch):
@@ -136,10 +136,10 @@ def test_minframes_negative_duration_is_also_unlimited(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "ultralytics",
-        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[2])),
+        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[14])),
     )
 
-    result = count_vehicles_minframes(
+    result = count_minframes(
         source="fake.mp4",
         duration=-1.0,
         model_path="ignored.pt",
@@ -162,10 +162,10 @@ def test_minframes_positive_duration_cap_still_honored(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "ultralytics",
-        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[2])),
+        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[14])),
     )
 
-    result = count_vehicles_minframes(
+    result = count_minframes(
         source="fake.mp4",
         duration=0.001,
         model_path="ignored.pt",
@@ -189,13 +189,13 @@ def test_linecrossing_duration_zero_processes_whole_clip(monkeypatch):
 
     def boxes_for_call(i):
         cy = 50 if i == 0 else 150  # above the line on frame 0, below it after
-        return _FakeBoxes(ids=[1], clss=[2], xywh=[(50, cy, 10, 10)])
+        return _FakeBoxes(ids=[1], clss=[14], xywh=[(50, cy, 10, 10)])
 
     monkeypatch.setitem(
         sys.modules, "ultralytics", _fake_ultralytics_module(boxes_for_call)
     )
 
-    result = count_vehicles_linecrossing(
+    result = count_linecrossing(
         source="fake.mp4",
         duration=0.0,
         p1=(0, 100),
@@ -206,4 +206,4 @@ def test_linecrossing_duration_zero_processes_whole_clip(monkeypatch):
 
     assert result["frames_processed"] == num_frames
     assert result["total"] == 1
-    assert result["breakdown"]["car"]["down"] == 1
+    assert result["breakdown"]["bird"]["down"] == 1

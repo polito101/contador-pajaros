@@ -1,6 +1,6 @@
 """Cross-repo Wave-0 tests for COUNT-01 (live-bets Phase 25).
 
-`count_vehicles_linecrossing` must emit a per-crossing ``events`` list so the
+`count_linecrossing` must emit a per-crossing ``events`` list so the
 live-bets widget counter can ramp in sync with the playing clip. Each event is
 ``{at, class, direction, track_id}`` where ``at`` is the *video-time* of the
 crossing (``frame_index / fps`` seconds, NOT wall-clock).
@@ -18,29 +18,29 @@ spanning x=0..200; a centroid path from above to below it crosses it once).
 """
 from __future__ import annotations
 
-from contador_coches.contar import LineCrossingCounter
+from contador_pajaros.contar import LineCrossingCounter
 
 
 def _drive_three_crossings() -> LineCrossingCounter:
-    """Three distinct tracks crossing the y=100 segment at increasing frames.
+    """Three distinct bird tracks crossing the y=100 segment at increasing frames.
 
     fps is fixed at 10.0 so the expected ``at`` values are exact, terminating
     decimals (frame/10) — no float-rounding ambiguity in the assertions.
 
-    - track 1 (car, down): above on frame 5, below on frame 6  -> at = 0.6
-    - track 2 (motorcycle, down): above on frame 14, below on frame 15 -> at = 1.5
-    - track 3 (bus, up): below on frame 24, above on frame 25 -> at = 2.5
+    - track 1 (bird, down): above on frame 5, below on frame 6  -> at = 0.6
+    - track 2 (bird, down): above on frame 14, below on frame 15 -> at = 1.5
+    - track 3 (bird, up): below on frame 24, above on frame 25 -> at = 2.5
     """
     c = LineCrossingCounter(p1=(0, 100), p2=(200, 100), fps=10.0)
-    # track 1 — car (class 2), crosses downward between frame 5 and 6.
-    c.observe(track_id=1, class_id=2, cx=50, cy=80, frame_index=5)
-    c.observe(track_id=1, class_id=2, cx=55, cy=120, frame_index=6)
-    # track 2 — motorcycle (class 3), crosses downward between frame 14 and 15.
-    c.observe(track_id=2, class_id=3, cx=70, cy=70, frame_index=14)
-    c.observe(track_id=2, class_id=3, cx=75, cy=130, frame_index=15)
-    # track 3 — bus (class 5), crosses upward between frame 24 and 25.
-    c.observe(track_id=3, class_id=5, cx=90, cy=150, frame_index=24)
-    c.observe(track_id=3, class_id=5, cx=95, cy=50, frame_index=25)
+    # track 1 — bird (class 14), crosses downward between frame 5 and 6.
+    c.observe(track_id=1, class_id=14, cx=50, cy=80, frame_index=5)
+    c.observe(track_id=1, class_id=14, cx=55, cy=120, frame_index=6)
+    # track 2 — bird (class 14), crosses downward between frame 14 and 15.
+    c.observe(track_id=2, class_id=14, cx=70, cy=70, frame_index=14)
+    c.observe(track_id=2, class_id=14, cx=75, cy=130, frame_index=15)
+    # track 3 — bird (class 14), crosses upward between frame 24 and 25.
+    c.observe(track_id=3, class_id=14, cx=90, cy=150, frame_index=24)
+    c.observe(track_id=3, class_id=14, cx=95, cy=50, frame_index=25)
     return c
 
 
@@ -72,19 +72,19 @@ def test_event_fields_match_observed_crossing():
         assert isinstance(ev["class"], str)
         assert isinstance(ev["direction"], str)
         assert isinstance(ev["track_id"], int)
-    assert by_track[1]["class"] == "car"
+    assert by_track[1]["class"] == "bird"
     assert by_track[1]["direction"] == "down"
-    assert by_track[2]["class"] == "motorcycle"
+    assert by_track[2]["class"] == "bird"
     assert by_track[2]["direction"] == "down"
-    assert by_track[3]["class"] == "bus"
+    assert by_track[3]["class"] == "bird"
     assert by_track[3]["direction"] == "up"
 
 
 def test_no_crossing_yields_no_events():
     """A path that never crosses the segment records no events (and total 0)."""
     c = LineCrossingCounter(p1=(0, 100), p2=(200, 100), fps=10.0)
-    c.observe(track_id=1, class_id=2, cx=50, cy=20, frame_index=0)
-    c.observe(track_id=1, class_id=2, cx=55, cy=30, frame_index=1)
+    c.observe(track_id=1, class_id=14, cx=50, cy=20, frame_index=0)
+    c.observe(track_id=1, class_id=14, cx=55, cy=30, frame_index=1)
     assert c.total() == 0
     assert c.events == []
 
@@ -92,10 +92,10 @@ def test_no_crossing_yields_no_events():
 def test_recrossing_same_track_appends_one_event():
     """A track counted once never appends a second event (matches no-double-count)."""
     c = LineCrossingCounter(p1=(0, 100), p2=(200, 100), fps=10.0)
-    c.observe(track_id=1, class_id=2, cx=50, cy=80, frame_index=2)
-    c.observe(track_id=1, class_id=2, cx=55, cy=120, frame_index=3)  # cross (counted)
-    c.observe(track_id=1, class_id=2, cx=60, cy=80, frame_index=4)   # cross back
-    c.observe(track_id=1, class_id=2, cx=65, cy=120, frame_index=5)  # again
+    c.observe(track_id=1, class_id=14, cx=50, cy=80, frame_index=2)
+    c.observe(track_id=1, class_id=14, cx=55, cy=120, frame_index=3)  # cross (counted)
+    c.observe(track_id=1, class_id=14, cx=60, cy=80, frame_index=4)   # cross back
+    c.observe(track_id=1, class_id=14, cx=65, cy=120, frame_index=5)  # again
     assert c.total() == 1
     assert len(c.events) == 1
     assert c.events[0]["at"] == 0.3
