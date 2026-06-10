@@ -1,4 +1,4 @@
-"""Contador de vehículos — count unique vehicles passing through a video stream."""
+"""Contador de pájaros — count unique birds passing through a video stream."""
 
 from __future__ import annotations
 
@@ -9,28 +9,25 @@ os.environ.setdefault(
     "rw_timeout;30000000|reconnect;1|reconnect_streamed;1|reconnect_delay_max;5",
 )
 
-VEHICLE_CLASSES: dict[int, str] = {
-    2: "car",
-    3: "motorcycle",
-    5: "bus",
-    7: "truck",
+BIRD_CLASSES: dict[int, str] = {
+    14: "bird",
 }
 
 
-class VehicleCounter:
-    """Counts unique vehicles per class, requiring a minimum number of frames
-    of presence before a track is considered a real vehicle (filters
-    ephemeral false positives like flickering detections on signs).
+class BirdCounter:
+    """Counts unique birds per class, requiring a minimum number of frames
+    of presence before a track is considered a real bird (filters
+    ephemeral false positives like flickering detections on branches).
     """
 
     def __init__(self, min_frames: int = 1) -> None:
         self.min_frames = min_frames
         self._frames_by_class: dict[str, dict[int, int]] = {
-            name: {} for name in VEHICLE_CLASSES.values()
+            name: {} for name in BIRD_CLASSES.values()
         }
 
     def add(self, track_id: int, class_id: int) -> None:
-        name = VEHICLE_CLASSES.get(class_id)
+        name = BIRD_CLASSES.get(class_id)
         if name is None:
             return
         self._frames_by_class[name][track_id] = (
@@ -63,7 +60,7 @@ class VehicleCounter:
         }
 
 
-def count_vehicles_minframes(
+def count_minframes(
     source: str | int,
     duration: float,
     model_path: str | None = "yolov8n.pt",
@@ -84,21 +81,21 @@ def count_vehicles_minframes(
     video, JSON output) and remains a separate code path.
 
     If `model_path` is None or empty, the bundled package weight
-    (``contador_coches/weights/yolov8n.pt``) is resolved via
+    (``contador_pajaros/weights/yolov8n.pt``) is resolved via
     ``importlib.resources``. Callers may still pass an explicit path to
     override (e.g. for tests or alternate models).
 
     Returns:
         {
             "total": int,
-            "breakdown": {"car": int, "truck": int, "motorcycle": int, "bus": int},
+            "breakdown": {"bird": int},
             "frames_processed": int,
             "duration_real": float,
         }
     """
     # Imports are local because the module-level import of `cv2` and YOLO is
     # only loaded when this function is actually called (keeps `import contar`
-    # cheap for callers that only want VehicleCounter).
+    # cheap for callers that only want BirdCounter).
     import time as _time
     import cv2 as _cv2
     from ultralytics import YOLO as _YOLO
@@ -107,15 +104,15 @@ def count_vehicles_minframes(
     # off the import-time path of the package (RESEARCH §3 Landmine).
     if not model_path:
         from importlib.resources import files as _files
-        model_path = str(_files("contador_coches.weights") / "yolov8n.pt")
+        model_path = str(_files("contador_pajaros.weights") / "yolov8n.pt")
 
     model = _YOLO(model_path)
     cap = _cv2.VideoCapture(source)
     if not cap.isOpened():
         raise RuntimeError(f"could not open source: {source!r}")
 
-    counter = VehicleCounter(min_frames=min_frames)
-    vehicle_class_ids = list(VEHICLE_CLASSES.keys())
+    counter = BirdCounter(min_frames=min_frames)
+    class_ids = list(BIRD_CLASSES.keys())
 
     start = _time.monotonic()
     frame_count = 0
@@ -127,7 +124,7 @@ def count_vehicles_minframes(
             results = model.track(
                 frame,
                 persist=True,
-                classes=vehicle_class_ids,
+                classes=class_ids,
                 conf=conf,
                 verbose=False,
             )
@@ -156,7 +153,7 @@ def count_vehicles_minframes(
     }
 
 
-def count_vehicles_linecrossing(
+def count_linecrossing(
     source: str | int,
     duration: float,
     p1: tuple[int, int],
@@ -164,9 +161,9 @@ def count_vehicles_linecrossing(
     model_path: str | None = "yolov8n.pt",
     conf: float = 0.5,
 ) -> dict:
-    """Headless line-crossing counter — sibling of `count_vehicles_minframes`.
+    """Headless line-crossing counter — sibling of `count_minframes`.
 
-    Counts vehicles whose centroid path crosses the segment defined by
+    Counts birds whose centroid path crosses the segment defined by
     ``(p1, p2)``. Direction is reported per-class via
     ``LineCrossingCounter.breakdown()``.
 
@@ -174,22 +171,22 @@ def count_vehicles_linecrossing(
     rendering, file writing, or window handling — suitable for live-bets
     offline ingestion / library-style use.
 
-    ``duration`` follows the same rule as ``count_vehicles_minframes``:
+    ``duration`` follows the same rule as ``count_minframes``:
     ``duration > 0`` caps wall-clock processing time; ``duration <= 0`` means
     "no cap — process every frame until the source ends".
 
     If `model_path` is None or empty, the bundled package weight is resolved
-    via ``importlib.resources`` (mirrors ``count_vehicles_minframes``).
+    via ``importlib.resources`` (mirrors ``count_minframes``).
     """
-    # Lazy imports keep `import contador_coches` cheap — same discipline as
-    # count_vehicles_minframes (RESEARCH §2 Landmine).
+    # Lazy imports keep `import contador_pajaros` cheap — same discipline as
+    # count_minframes (RESEARCH §2 Landmine).
     import time as _time
     import cv2 as _cv2
     from ultralytics import YOLO as _YOLO
 
     if not model_path:
         from importlib.resources import files as _files
-        model_path = str(_files("contador_coches.weights") / "yolov8n.pt")
+        model_path = str(_files("contador_pajaros.weights") / "yolov8n.pt")
 
     model = _YOLO(model_path)
     cap = _cv2.VideoCapture(source)
@@ -203,7 +200,7 @@ def count_vehicles_linecrossing(
     fps = fps_stream if 1.0 < fps_stream < 120.0 else 25.0
 
     counter = LineCrossingCounter(p1=p1, p2=p2, fps=fps)
-    vehicle_class_ids = list(VEHICLE_CLASSES.keys())
+    class_ids = list(BIRD_CLASSES.keys())
 
     start = _time.monotonic()
     frame_count = 0
@@ -215,7 +212,7 @@ def count_vehicles_linecrossing(
             results = model.track(
                 frame,
                 persist=True,
-                classes=vehicle_class_ids,
+                classes=class_ids,
                 conf=conf,
                 verbose=False,
             )
@@ -231,7 +228,7 @@ def count_vehicles_linecrossing(
                         frame_index=frame_count,
                     )
             frame_count += 1
-            # duration <= 0 means "no wall-clock cap" — see count_vehicles_minframes.
+            # duration <= 0 means "no wall-clock cap" — see count_minframes.
             if duration > 0 and _time.monotonic() - start >= duration:
                 break
     finally:
@@ -250,9 +247,9 @@ def count_vehicles_linecrossing(
 
 
 class LineCrossingCounter:
-    """Counts unique vehicles that cross a line SEGMENT (not an infinite line).
+    """Counts unique birds that cross a line SEGMENT (not an infinite line).
 
-    The segment is defined by two endpoints `p1` and `p2`. A vehicle is
+    The segment is defined by two endpoints `p1` and `p2`. A bird is
     counted the first time its centroid path between consecutive frames
     intersects this segment. Direction is reported as ``down``/``up`` for
     a mostly-horizontal segment, or ``right``/``left`` for a mostly-vertical
@@ -291,7 +288,7 @@ class LineCrossingCounter:
         self._last_pos: dict[int, tuple[int, int]] = {}
         self._crossed: dict[str, dict[str, set[int]]] = {
             name: {d: set() for d in self._dirs}
-            for name in VEHICLE_CLASSES.values()
+            for name in BIRD_CLASSES.values()
         }
         self._already_counted: set[int] = set()
 
@@ -323,7 +320,7 @@ class LineCrossingCounter:
         cy: int,
         frame_index: int = 0,
     ) -> None:
-        name = VEHICLE_CLASSES.get(class_id)
+        name = BIRD_CLASSES.get(class_id)
         if name is None:
             return
         prev = self._last_pos.get(track_id)
@@ -389,7 +386,7 @@ from pathlib import Path
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Count unique vehicles in a video stream.")
+    p = argparse.ArgumentParser(description="Count unique birds in a video stream.")
     p.add_argument("--source", required=True,
                    help="RTSP/HTTP URL or path to a video file.")
     p.add_argument("--duration", type=float, default=30.0,
@@ -438,8 +435,8 @@ from datetime import datetime
 
 # IMPORTANT — do NOT import cv2 / ultralytics at module top-level.
 # They are only required inside the CLI ``main()`` and inside the
-# headless ``count_vehicles_*`` functions, which lazy-import them.
-# Top-level imports would force every ``import contador_coches`` to
+# headless ``count_*`` functions, which lazy-import them.
+# Top-level imports would force every ``import contador_pajaros`` to
 # load ~200 MB of CV libs even when callers only need ``__version__``
 # or the helper utilities below (RESEARCH §2 Landmine).
 #
@@ -676,7 +673,7 @@ def _parse_line_arg(s: str) -> tuple[tuple[int, int], tuple[int, int]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Lazy-import cv2 and YOLO here so that ``import contador_coches`` (without
+    # Lazy-import cv2 and YOLO here so that ``import contador_pajaros`` (without
     # invoking the CLI) does NOT pull in ~200 MB of CV libs. They are bound
     # as module globals so the CLI helpers (open_capture, _preview_frame,
     # _pick_line_interactive, _draw_counter_overlay, etc.) can use them
@@ -757,12 +754,12 @@ def main(argv: list[str] | None = None) -> int:
         writer = make_writer(video_path, width, height, fps)
 
     use_line = segment is not None
-    counter: VehicleCounter | LineCrossingCounter
+    counter: BirdCounter | LineCrossingCounter
     if use_line:
         counter = LineCrossingCounter(p1=segment[0], p2=segment[1])
     else:
-        counter = VehicleCounter(min_frames=args.min_frames)
-    vehicle_class_ids = list(VEHICLE_CLASSES.keys())
+        counter = BirdCounter(min_frames=args.min_frames)
+    class_ids = list(BIRD_CLASSES.keys())
 
     print(f"Processing {args.duration}s from {args.source} ...")
     start = time.monotonic()
@@ -779,7 +776,7 @@ def main(argv: list[str] | None = None) -> int:
             results = model.track(
                 frame,
                 persist=True,
-                classes=vehicle_class_ids,
+                classes=class_ids,
                 conf=args.conf,
                 verbose=False,
             )
@@ -807,7 +804,7 @@ def main(argv: list[str] | None = None) -> int:
                 writer.write(annotated)
 
             if not args.no_display:
-                cv2.imshow("contador-coches (q para salir)", annotated)
+                cv2.imshow("contador-pajaros (q para salir)", annotated)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     print("Interrupted by user.")
                     break
@@ -825,22 +822,16 @@ def main(argv: list[str] | None = None) -> int:
 
     breakdown = counter.breakdown()
     print()
-    print(f"Han pasado {counter.total()} vehículos en {duration_real:.1f} s "
+    print(f"Han pasado {counter.total()} pájaros en {duration_real:.1f} s "
           f"({frame_count} frames procesados)")
     if use_line:
-        # breakdown is dict[class, dict[direction, count]]
         dir_names = counter._dirs  # ("down","up") or ("right","left")
-        header = f"  {'clase':<10} {dir_names[0]:>6} {dir_names[1]:>6}"
-        print(header)
-        for label, key in [("coches", "car"), ("motos", "motorcycle"),
-                            ("camiones", "truck"), ("autobuses", "bus")]:
-            d = breakdown[key]
-            print(f"  {label:<10} {d[dir_names[0]]:>6} {d[dir_names[1]]:>6}")
+        print(f"  {'clase':<10} {dir_names[0]:>6} {dir_names[1]:>6}")
+        for key, d in breakdown.items():
+            print(f"  {key:<10} {d[dir_names[0]]:>6} {d[dir_names[1]]:>6}")
     else:
-        print(f"  coches:    {breakdown['car']:>4}")
-        print(f"  motos:     {breakdown['motorcycle']:>4}")
-        print(f"  camiones:  {breakdown['truck']:>4}")
-        print(f"  autobuses: {breakdown['bus']:>4}")
+        for key, n in breakdown.items():
+            print(f"  {key:<10} {n:>4}")
 
     if json_path is not None:
         summary = counter.summary(
