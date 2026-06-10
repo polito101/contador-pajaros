@@ -23,3 +23,10 @@ lines.json
 # OS
 Thumbs.db
 .DS_Store
+
+# Demo / E2E scratch (NOT part of the package)
+var/
+*.ts
+*.sql
+e2e_birds_bet.py
+seed_birds_calibrate.py
