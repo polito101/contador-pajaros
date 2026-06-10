@@ -1,6 +1,6 @@
-# Contador de coches
+# Contador de pájaros
 
-Cuenta vehículos únicos que pasan por una cámara o vídeo durante una ventana de tiempo configurable. Usa YOLOv8 + ByteTrack para detección y seguimiento.
+Cuenta pájaros únicos que pasan por una cámara o vídeo durante una ventana de tiempo configurable. Usa YOLOv8 + ByteTrack para detección y seguimiento.
 
 ## Requisitos
 
@@ -78,7 +78,7 @@ Pulsa `q` mientras corre para terminar antes.
 
 **Sin línea (default):** cuenta IDs únicos del tracker. Usa `--conf` y `--min-frames` para filtrar falsos positivos.
 
-**Con línea (`--line`, `--line-y`, `--line-x` o `--pick-line`):** solo cuenta vehículos cuyo movimiento cruza el **segmento** entre A y B. Mucho más preciso y reporta dirección.
+**Con línea (`--line`, `--line-y`, `--line-x` o `--pick-line`):** solo cuenta pájaros cuyo movimiento cruza el **segmento** entre A y B. Mucho más preciso y reporta dirección.
 
 **Opción rápida — picker interactivo:**
 
@@ -137,8 +137,8 @@ La dirección reportada depende de la orientación dominante del segmento:
 
 ## Versioning discipline
 
-`contador-coches` se distribuye como paquete instalable (`pip install
-git+https://.../contador-coches.git@v0.1.0`) y `live-bets` lo pinea por **tag
+`contador-pajaros` se distribuye como paquete instalable (`pip install
+git+https://.../contador-pajaros.git@v0.1.0`) y `live-bets` lo pinea por **tag
 inmutable**. La disciplina de versionado es estricta porque downstream
 (live-bets) construye `indexer_version = "<package_semver>+<model_basename>"`
 y ese string entra en el `clip_id` content-addressed (D-06, D-08): un cambio
@@ -150,11 +150,11 @@ romperíamos auditoría e idempotencia.
 
 1. **Bump de semver obligatorio** cuando cualquiera de estas cosas cambia:
    - El valor por defecto de `min_frames` o `conf` en
-     `count_vehicles_minframes` / `count_vehicles_linecrossing`.
+     `count_minframes` / `count_linecrossing`.
    - El archivo binario de los pesos YOLO bundled
-     (`contador_coches/weights/yolov8n.pt`).
-   - La firma pública de `count_vehicles_minframes`,
-     `count_vehicles_linecrossing`, `resolve_source` o
+     (`contador_pajaros/weights/yolov8n.pt`).
+   - La firma pública de `count_minframes`,
+     `count_linecrossing`, `resolve_source` o
      `get_default_model_path`.
    - El output JSON shape (campos `total`, `breakdown`, `frames_processed`,
      `duration_real`, etc.).
@@ -185,8 +185,8 @@ git tag -a v0.2.0 -m "v0.2.0 — semver bump per versioning discipline"
 
 ```toml
 dependencies = [
-    "contador-coches @ git+file:///C/Users/pobom/contador-coches@v0.1.0",
-    # En producción: git+https://github.com/<user>/contador-coches.git@v0.1.0
+    "contador-pajaros @ git+file:///C/Users/pobom/contador-pajaros@v0.1.0",
+    # En producción: git+https://github.com/<user>/contador-pajaros.git@v0.1.0
 ]
 ```
 
