@@ -1,6 +1,6 @@
 [project]
 name = "contador-pajaros"
-version = "0.3.0"
+version = "0.4.0"
 description = "YOLO + ByteTrack bird counter for live-bets"
 requires-python = ">=3.12"
 dependencies = [

@@ -9,8 +9,16 @@ os.environ.setdefault(
     "rw_timeout;30000000|reconnect;1|reconnect_streamed;1|reconnect_delay_max;5",
 )
 
+# COCO ids counted by the feeder-cam product. Squirrels are not a COCO class:
+# a GPU census on real feeder clips (2026-06-12, 5400 frames) showed the
+# resident squirrel fires as cat (dominant, conf to 0.65), dog and bear —
+# all three map to the SAME "squirrel" label so a class-flickering track
+# accumulates in one (name, track_id) bucket and counts exactly once.
 BIRD_CLASSES: dict[int, str] = {
     14: "bird",
+    15: "squirrel",
+    16: "squirrel",
+    21: "squirrel",
 }
 
 
@@ -20,19 +28,56 @@ class BirdCounter:
     ephemeral false positives like flickering detections on branches).
     """
 
-    def __init__(self, min_frames: int = 1) -> None:
+    def __init__(
+        self,
+        min_frames: int = 1,
+        fps: float = 25.0,
+        frame_size: tuple[int, int] | None = None,
+    ) -> None:
         self.min_frames = min_frames
+        # Duplicate "squirrel" values in BIRD_CLASSES collapse to one bucket
+        # naturally — that is the point (class-flickering tracks accumulate in
+        # one (name, track_id) bucket and count exactly once).
         self._frames_by_class: dict[str, dict[int, int]] = {
             name: {} for name in BIRD_CLASSES.values()
         }
+        self._fps = fps
+        self.frame_size = frame_size
+        # One event is appended per track at the EXACT add() where it reaches
+        # min_frames (the model-is-sure confirmation moment), so
+        # len(events) == total() by construction — the per-appearance
+        # decomposition of the same number settlement reads.
+        self.events: list[dict] = []
 
-    def add(self, track_id: int, class_id: int) -> None:
+    def add(
+        self,
+        track_id: int,
+        class_id: int,
+        cx: int | None = None,
+        cy: int | None = None,
+        frame_index: int = 0,
+    ) -> None:
         name = BIRD_CLASSES.get(class_id)
         if name is None:
             return
-        self._frames_by_class[name][track_id] = (
-            self._frames_by_class[name].get(track_id, 0) + 1
-        )
+        new_count = self._frames_by_class[name].get(track_id, 0) + 1
+        self._frames_by_class[name][track_id] = new_count
+        if new_count == self.min_frames:
+            event: dict = {
+                "at": round(frame_index / self._fps, 3),
+                "class": name,
+                "track_id": int(track_id),
+            }
+            if (
+                self.frame_size is not None
+                and cx is not None
+                and cy is not None
+            ):
+                fw, fh = self.frame_size
+                if fw > 0 and fh > 0:
+                    event["x"] = round(cx / fw, 4)
+                    event["y"] = round(cy / fh, 4)
+            self.events.append(event)
 
     def _kept_ids(self, name: str) -> list[int]:
         return [
@@ -87,9 +132,13 @@ def count_minframes(
     Returns:
         {
             "total": int,
-            "breakdown": {"bird": int},
+            "breakdown": {"bird": int, "squirrel": int},
             "frames_processed": int,
             "duration_real": float,
+            "events": list[dict],  # appearance-event decomposition consumed by
+                                   # live-bets, mirroring the linecrossing contract:
+                                   # one {at, class, track_id, x?, y?} per confirmed
+                                   # track; len(events) == total by construction.
         }
     """
     # Imports are local because the module-level import of `cv2` and YOLO is
@@ -111,7 +160,13 @@ def count_minframes(
     if not cap.isOpened():
         raise RuntimeError(f"could not open source: {source!r}")
 
-    counter = BirdCounter(min_frames=min_frames)
+    # Read the container fps so confirmations can be stamped with video-time
+    # ``at = frame_index / fps``. Same guard count_linecrossing uses: only an
+    # absurd value (<=1 or >=120, e.g. 0.0 from a stream) falls back to 25.0.
+    fps_stream = cap.get(_cv2.CAP_PROP_FPS)
+    fps = fps_stream if 1.0 < fps_stream < 120.0 else 25.0
+
+    counter = BirdCounter(min_frames=min_frames, fps=fps)
     class_ids = list(BIRD_CLASSES.keys())
 
     start = _time.monotonic()
@@ -121,6 +176,13 @@ def count_minframes(
             ok, frame = cap.read()
             if not ok or frame is None:
                 break
+            # First-frame probe: derive frame_size from .shape so events carry
+            # normalized x/y. getattr guard: fake/opaque frames (tests) have no
+            # .shape — events then simply omit x/y. Mirrors count_linecrossing.
+            if counter.frame_size is None and frame_count == 0:
+                shape = getattr(frame, "shape", None)
+                if shape is not None and len(shape) >= 2 and shape[0] > 0 and shape[1] > 0:
+                    counter.frame_size = (int(shape[1]), int(shape[0]))
             results = model.track(
                 frame,
                 persist=True,
@@ -132,8 +194,15 @@ def count_minframes(
             if r.boxes is not None and r.boxes.id is not None:
                 ids = r.boxes.id.int().cpu().tolist()
                 clss = r.boxes.cls.int().cpu().tolist()
-                for tid, cid in zip(ids, clss, strict=False):
-                    counter.add(track_id=tid, class_id=cid)
+                xywh = r.boxes.xywh.cpu().numpy() if r.boxes.xywh is not None else []
+                for k, (tid, cid) in enumerate(zip(ids, clss, strict=False)):
+                    cx = cy = None
+                    if k < len(xywh):
+                        cx, cy = int(xywh[k][0]), int(xywh[k][1])
+                    counter.add(
+                        track_id=tid, class_id=cid, cx=cx, cy=cy,
+                        frame_index=frame_count,
+                    )
             frame_count += 1
             # duration <= 0 means "no wall-clock cap": process every frame until
             # the source is exhausted. This is the correct mode for offline
@@ -150,6 +219,10 @@ def count_minframes(
         "breakdown": counter.breakdown(),
         "frames_processed": frame_count,
         "duration_real": _time.monotonic() - start,
+        # Appearance-event decomposition consumed by live-bets, mirroring the
+        # linecrossing events contract: one {at, class, track_id, x?, y?} per
+        # confirmed track; len(events) == total by construction.
+        "events": counter.events,
     }
 
 

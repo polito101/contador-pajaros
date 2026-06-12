@@ -4,7 +4,7 @@ from contar import BirdCounter, BIRD_CLASSES
 def test_counter_starts_empty():
     c = BirdCounter()
     assert c.total() == 0
-    assert c.breakdown() == {"bird": 0}
+    assert c.breakdown() == {"bird": 0, "squirrel": 0}
 
 
 def test_counter_adds_unique_ids():
@@ -12,7 +12,7 @@ def test_counter_adds_unique_ids():
     c.add(track_id=1, class_id=14)   # bird
     c.add(track_id=2, class_id=14)   # bird
     assert c.total() == 2
-    assert c.breakdown() == {"bird": 2}
+    assert c.breakdown() == {"bird": 2, "squirrel": 0}
 
 
 def test_counter_dedupes_same_id():
@@ -31,7 +31,8 @@ def test_counter_ignores_non_bird_class():
 
 
 def test_bird_classes_constant():
-    assert BIRD_CLASSES == {14: "bird"}
+    # v0.4.0: squirrel proxy classes added (COCO cat/dog/bear map to "squirrel")
+    assert BIRD_CLASSES == {14: "bird", 15: "squirrel", 16: "squirrel", 21: "squirrel"}
 
 
 def test_summary_dict_shape():

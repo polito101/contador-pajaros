@@ -22,6 +22,7 @@ from contador_pajaros.contar import (
 )
 
 
+
 class _FakeArr:
     """Mimics a torch tensor's ``.int().cpu().tolist()`` / ``.cpu().numpy()`` chain."""
 
@@ -246,3 +247,60 @@ def test_linecrossing_events_carry_xy_from_first_frame_shape(monkeypatch):
     (ev,) = result["events"]
     assert ev["x"] == round(50 / 640, 4)
     assert ev["y"] == round(150 / 360, 4)
+
+
+def test_minframes_emits_appearance_events_with_xy(monkeypatch):
+    """v0.4.0: count_minframes derives fps/frame_size and emits one event per
+    confirmed track at the min_frames-th frame, with normalized x/y when
+    frames expose .shape; totals/breakdown unchanged."""
+    num_frames = 8
+    monkeypatch.setitem(
+        sys.modules, "cv2", _fake_cv2_module(num_frames, frame_shape=(360, 640, 3))
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "ultralytics",
+        _fake_ultralytics_module(
+            lambda i: _FakeBoxes(ids=[1], clss=[14], xywh=[(50, 100, 10, 10)])
+        ),
+    )
+
+    result = count_minframes(
+        source="fake.mp4",
+        duration=0.0,
+        model_path="ignored.pt",
+        min_frames=5,
+        conf=0.25,
+    )
+
+    assert result["total"] == 1
+    (ev,) = result["events"]
+    # confirmation on the 5th frame (index 4); fake fps unreadable -> 25.0
+    assert ev["at"] == round(4 / 25.0, 3)
+    assert ev["x"] == round(50 / 640, 4)
+    assert ev["y"] == round(100 / 360, 4)
+
+
+def test_minframes_events_omit_xy_on_shapeless_frames(monkeypatch):
+    """Legacy opaque frames (no .shape) and empty xywh: events still emitted
+    (at only), counts unchanged — graceful degradation."""
+    num_frames = 8
+    monkeypatch.setitem(sys.modules, "cv2", _fake_cv2_module(num_frames))
+    monkeypatch.setitem(
+        sys.modules,
+        "ultralytics",
+        _fake_ultralytics_module(lambda i: _FakeBoxes(ids=[1], clss=[14])),
+    )
+
+    result = count_minframes(
+        source="fake.mp4",
+        duration=0.0,
+        model_path="ignored.pt",
+        min_frames=5,
+        conf=0.25,
+    )
+
+    assert result["total"] == 1
+    (ev,) = result["events"]
+    assert ev["at"] == round(4 / 25.0, 3)
+    assert "x" not in ev and "y" not in ev

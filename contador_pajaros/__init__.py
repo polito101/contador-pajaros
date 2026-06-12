@@ -25,7 +25,9 @@ from pathlib import Path
 # output for the same input, so this MUST be a semver bump (it propagates a new
 # indexer_version '+yolo26x' -> new clip_id namespace -> re-index required).
 # v0.3.0 — additive x/y (normalized crossing centroid) per event when frame size is known.
-__version__ = "0.3.0"
+# v0.4.0 — appearance-confirmation events (at/x/y per confirmed track) + squirrel proxy
+#           classes; line-free feeder product.
+__version__ = "0.4.0"
 
 # Re-export the public callables from the implementation module.
 # Lazy heavy imports (cv2, ultralytics) live inside the function bodies so
