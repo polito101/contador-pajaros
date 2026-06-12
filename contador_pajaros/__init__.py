@@ -24,7 +24,8 @@ from pathlib import Path
 # variant; unanimous decision 2026-06-10). The model change alters detection
 # output for the same input, so this MUST be a semver bump (it propagates a new
 # indexer_version '+yolo26x' -> new clip_id namespace -> re-index required).
-__version__ = "0.2.0"
+# v0.3.0 — additive x/y (normalized crossing centroid) per event when frame size is known.
+__version__ = "0.3.0"
 
 # Re-export the public callables from the implementation module.
 # Lazy heavy imports (cv2, ultralytics) live inside the function bodies so
