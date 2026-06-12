@@ -34,7 +34,7 @@ class BirdCounter:
         fps: float = 25.0,
         frame_size: tuple[int, int] | None = None,
     ) -> None:
-        self.min_frames = min_frames
+        self.min_frames = max(1, min_frames)  # <=0 would break len(events)==total()
         # Duplicate "squirrel" values in BIRD_CLASSES collapse to one bucket
         # naturally — that is the point (class-flickering tracks accumulate in
         # one (name, track_id) bucket and count exactly once).
@@ -48,6 +48,11 @@ class BirdCounter:
         # len(events) == total() by construction — the per-appearance
         # decomposition of the same number settlement reads.
         self.events: list[dict] = []
+        # First-confirmation registry across ALL labels: a ByteTrack id keeps
+        # its identity while the class flickers (probe evidence: one squirrel
+        # fires cat/dog/bear), so confirmation/total/events key on track_id
+        # globally — one animal, one event, regardless of label drift.
+        self._confirmed: dict[int, str] = {}
 
     def add(
         self,
@@ -62,7 +67,8 @@ class BirdCounter:
             return
         new_count = self._frames_by_class[name].get(track_id, 0) + 1
         self._frames_by_class[name][track_id] = new_count
-        if new_count == self.min_frames:
+        if new_count == self.min_frames and track_id not in self._confirmed:
+            self._confirmed[track_id] = name
             event: dict = {
                 "at": round(frame_index / self._fps, 3),
                 "class": name,
@@ -79,17 +85,14 @@ class BirdCounter:
                     event["y"] = round(cy / fh, 4)
             self.events.append(event)
 
-    def _kept_ids(self, name: str) -> list[int]:
-        return [
-            tid for tid, n in self._frames_by_class[name].items()
-            if n >= self.min_frames
-        ]
-
     def total(self) -> int:
-        return sum(len(self._kept_ids(n)) for n in self._frames_by_class)
+        return len(self._confirmed)
 
     def breakdown(self) -> dict[str, int]:
-        return {n: len(self._kept_ids(n)) for n in self._frames_by_class}
+        out = {name: 0 for name in BIRD_CLASSES.values()}
+        for name in self._confirmed.values():
+            out[name] += 1
+        return out
 
     def summary(self, source: str, duration_real: float, model: str) -> dict:
         return {
@@ -100,7 +103,8 @@ class BirdCounter:
             "total": self.total(),
             "breakdown": self.breakdown(),
             "track_ids": {
-                n: sorted(self._kept_ids(n)) for n in self._frames_by_class
+                n: sorted(tid for tid, nm in self._confirmed.items() if nm == n)
+                for n in BIRD_CLASSES.values()
             },
         }
 

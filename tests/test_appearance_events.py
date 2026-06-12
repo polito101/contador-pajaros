@@ -70,3 +70,23 @@ def test_event_omits_xy_without_frame_size_or_centroid():
 def test_class_table_squirrel_proxies():
     assert BIRD_CLASSES[14] == "bird"
     assert BIRD_CLASSES[15] == BIRD_CLASSES[16] == BIRD_CLASSES[21] == "squirrel"
+
+
+def test_cross_label_flicker_counts_once():
+    """One track confirmed as squirrel must NOT confirm again under bird:
+    one animal, one event, total()==1 (review find, 2026-06-12)."""
+    c = BirdCounter(min_frames=3, fps=10.0)
+    for f in range(3):
+        c.add(track_id=7, class_id=15, frame_index=f)   # squirrel confirms
+    for f in range(3, 9):
+        c.add(track_id=7, class_id=14, frame_index=f)   # stray bird misfires
+    assert c.total() == 1
+    assert c.breakdown() == {"bird": 0, "squirrel": 1}
+    assert len(c.events) == 1
+    assert c.events[0]["class"] == "squirrel"
+
+
+def test_min_frames_clamped_to_one():
+    c = BirdCounter(min_frames=0, fps=10.0)
+    c.add(track_id=1, class_id=14, frame_index=0)
+    assert c.total() == 1 and len(c.events) == 1

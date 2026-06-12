@@ -22,7 +22,6 @@ from contador_pajaros.contar import (
 )
 
 
-
 class _FakeArr:
     """Mimics a torch tensor's ``.int().cpu().tolist()`` / ``.cpu().numpy()`` chain."""
 
