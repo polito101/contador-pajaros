@@ -413,3 +413,20 @@ def test_bird_then_squirrel_reid_same_spot_counts_one():
     _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
     _walk(c, 11, 15, 100, 100, 20, 20, start_frame=4, n=3)
     assert c.total() == 1
+
+
+def test_anchor_f74739485_stationary_animal_counts_one():
+    c = BirdCounter(min_frames=5, fps=60.0)
+    box = (410, 209, 60, 60)
+    segments = [
+        (87, 14, 1010),
+        (89, 15, 1018),
+        (90, 14, 1024),
+        (93, 15, 1030),
+        (96, 15, 1036),
+    ]
+    for tid, cid, start in segments:
+        for i in range(5):
+            c.add(track_id=tid, class_id=cid, cx=box[0], cy=box[1],
+                  w=box[2], h=box[3], frame_index=start + i)
+    assert c.total() == 1
