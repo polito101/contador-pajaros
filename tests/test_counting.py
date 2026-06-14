@@ -370,3 +370,46 @@ def test_no_box_means_no_endpoint_state_backcompat():
     assert c.total() == 2
     assert c._first_frame == {}
     assert c._last_box == {}
+
+
+def _walk(c, track_id, class_id, cx, cy, w, h, start_frame, n):
+    for i in range(n):
+        c.add(track_id=track_id, class_id=class_id, cx=cx, cy=cy, w=w, h=h,
+              frame_index=start_frame + i)
+
+
+def test_sequential_same_spot_reid_counts_one():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 14, 101, 100, 20, 20, start_frame=4, n=3)
+    assert c.total() == 1
+    assert 11 in c._suppressed
+
+
+def test_copresent_overlap_counts_two():
+    c = BirdCounter(min_frames=3)
+    for i in range(3):
+        c.add(track_id=10, class_id=14, cx=100, cy=100, w=20, h=20, frame_index=i)
+        c.add(track_id=11, class_id=14, cx=101, cy=100, w=20, h=20, frame_index=i)
+    assert c.total() == 2
+
+
+def test_same_perch_large_gap_counts_two():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 14, 100, 100, 20, 20, start_frame=50, n=3)
+    assert c.total() == 2
+
+
+def test_low_iou_neighbor_counts_two():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 14, 200, 100, 20, 20, start_frame=4, n=3)
+    assert c.total() == 2
+
+
+def test_bird_then_squirrel_reid_same_spot_counts_one():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 15, 100, 100, 20, 20, start_frame=4, n=3)
+    assert c.total() == 1

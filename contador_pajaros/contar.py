@@ -110,9 +110,26 @@ class BirdCounter:
                 self._first_box[track_id] = box
             self._last_frame[track_id] = frame_index
             self._last_box[track_id] = box
+            if track_id in self._suppressed:
+                target = self._suppressed[track_id]
+                self._last_frame[target] = frame_index
+                self._last_box[target] = box
         new_count = self._frames_by_class[name].get(track_id, 0) + 1
         self._frames_by_class[name][track_id] = new_count
-        if new_count == self.min_frames and track_id not in self._confirmed:
+        if (
+            new_count == self.min_frames
+            and track_id not in self._confirmed
+            and track_id not in self._suppressed
+        ):
+            target = self._link_target(track_id) if box is not None else None
+            if target is not None:
+                # Re-ID of an existing animal: suppress, and seed that animal's
+                # death with this segment's death so the NEXT id in the churn
+                # chain stitches onto a CURRENT endpoint (3a keeps advancing it).
+                self._suppressed[track_id] = target
+                self._last_frame[target] = self._last_frame[track_id]
+                self._last_box[target] = self._last_box[track_id]
+                return
             self._confirmed[track_id] = name
             event: dict = {
                 "at": round(frame_index / self._fps, 3),
@@ -129,6 +146,24 @@ class BirdCounter:
                     event["x"] = round(cx / fw, 4)
                     event["y"] = round(cy / fh, 4)
             self.events.append(event)
+
+    def _link_target(self, track_id: int) -> int | None:
+        """The confirmed animal this track re-IDs, or None. A match needs this
+        track's BIRTH to stitch onto a confirmed animal's DEATH: a short forward
+        gap (1..RELINK_MAX_GAP_FRAMES — excludes co-present same-frame detections)
+        and box IoU >= RELINK_IOU_THRESHOLD. That is a ByteTrack id-switch on one
+        stationary animal, not a new one. Deterministic: first match in
+        insertion order."""
+        b_first = self._first_frame[track_id]
+        b_box = self._first_box[track_id]
+        for other in self._confirmed:
+            gap = b_first - self._last_frame.get(other, -1_000_000)
+            if (
+                1 <= gap <= RELINK_MAX_GAP_FRAMES
+                and _iou(b_box, self._last_box[other]) >= RELINK_IOU_THRESHOLD
+            ):
+                return other
+        return None
 
     def total(self) -> int:
         return len(self._confirmed)
