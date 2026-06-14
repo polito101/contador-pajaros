@@ -27,7 +27,7 @@ from pathlib import Path
 # v0.3.0 — additive x/y (normalized crossing centroid) per event when frame size is known.
 # v0.4.0 — appearance-confirmation events (at/x/y per confirmed track) + squirrel proxy
 #           classes; line-free feeder product.
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # Re-export the public callables from the implementation module.
 # Lazy heavy imports (cv2, ultralytics) live inside the function bodies so

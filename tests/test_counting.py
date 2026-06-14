@@ -1,4 +1,5 @@
 from contar import BirdCounter, BIRD_CLASSES
+from contar import _iou, RELINK_IOU_THRESHOLD, RELINK_MAX_GAP_FRAMES
 
 
 def test_counter_starts_empty():
@@ -331,3 +332,111 @@ def test_cli_print_loop_handles_single_bird_key(capsys):
         print(f"  {key:<10} {n:>4}")
     out = capsys.readouterr().out
     assert "bird" in out
+
+
+def test_iou_identical_boxes_is_one():
+    assert _iou((10, 10, 4, 4), (10, 10, 4, 4)) == 1.0
+
+
+def test_iou_disjoint_boxes_is_zero():
+    assert _iou((0, 0, 2, 2), (100, 100, 2, 2)) == 0.0
+
+
+def test_iou_half_overlap():
+    assert abs(_iou((0, 0, 4, 4), (2, 0, 4, 4)) - (8 / 24)) < 1e-9
+
+
+def test_relink_constants_present():
+    assert RELINK_IOU_THRESHOLD == 0.4
+    assert RELINK_MAX_GAP_FRAMES == 8
+
+
+def test_endpoint_state_recorded_with_box():
+    c = BirdCounter(min_frames=2)
+    c.add(track_id=7, class_id=14, cx=100, cy=50, w=20, h=10, frame_index=3)
+    c.add(track_id=7, class_id=14, cx=102, cy=50, w=20, h=10, frame_index=4)
+    assert c._first_frame[7] == 3
+    assert c._first_box[7] == (100.0, 50.0, 20.0, 10.0)
+    assert c._last_frame[7] == 4
+    assert c._last_box[7] == (102.0, 50.0, 20.0, 10.0)
+
+
+def test_no_box_means_no_endpoint_state_backcompat():
+    c = BirdCounter(min_frames=1)
+    c.add(track_id=1, class_id=14)
+    c.add(track_id=2, class_id=14)
+    assert c.total() == 2
+    assert c._first_frame == {}
+    assert c._last_box == {}
+
+
+def _walk(c, track_id, class_id, cx, cy, w, h, start_frame, n):
+    for i in range(n):
+        c.add(track_id=track_id, class_id=class_id, cx=cx, cy=cy, w=w, h=h,
+              frame_index=start_frame + i)
+
+
+def test_sequential_same_spot_reid_counts_one():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 14, 101, 100, 20, 20, start_frame=4, n=3)
+    assert c.total() == 1
+    assert 11 in c._suppressed
+
+
+def test_copresent_overlap_counts_two():
+    c = BirdCounter(min_frames=3)
+    for i in range(3):
+        c.add(track_id=10, class_id=14, cx=100, cy=100, w=20, h=20, frame_index=i)
+        c.add(track_id=11, class_id=14, cx=101, cy=100, w=20, h=20, frame_index=i)
+    assert c.total() == 2
+
+
+def test_same_perch_large_gap_counts_two():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 14, 100, 100, 20, 20, start_frame=50, n=3)
+    assert c.total() == 2
+
+
+def test_low_iou_neighbor_counts_two():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 14, 200, 100, 20, 20, start_frame=4, n=3)
+    assert c.total() == 2
+
+
+def test_bird_then_squirrel_reid_same_spot_counts_one():
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)
+    _walk(c, 11, 15, 100, 100, 20, 20, start_frame=4, n=3)
+    assert c.total() == 1
+
+
+def test_anchor_f74739485_stationary_animal_counts_one():
+    c = BirdCounter(min_frames=5, fps=60.0)
+    box = (410, 209, 60, 60)
+    segments = [
+        (87, 14, 1010),
+        (89, 15, 1018),
+        (90, 14, 1024),
+        (93, 15, 1030),
+        (96, 15, 1036),
+    ]
+    for tid, cid, start in segments:
+        for i in range(5):
+            c.add(track_id=tid, class_id=cid, cx=box[0], cy=box[1],
+                  w=box[2], h=box[3], frame_index=start + i)
+    assert c.total() == 1
+
+
+def test_ongoing_suppression_advances_absorber_death():
+    # Without the per-frame death-advance (3a), this is total()==2.
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)    # A confirms at f2
+    _walk(c, 11, 14, 100, 100, 20, 20, start_frame=3, n=13)   # B re-IDs A, lives f3..f15
+    assert 11 in c._suppressed
+    # C is born at f17: links ONLY because B's ongoing frames advanced A's death to f15
+    # (gap 17-15=2). Seeded-only death (f5) would give gap 12 > 8 -> C counts fresh.
+    _walk(c, 12, 14, 100, 100, 20, 20, start_frame=17, n=3)
+    assert c.total() == 1

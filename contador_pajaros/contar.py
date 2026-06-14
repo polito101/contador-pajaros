@@ -21,6 +21,30 @@ BIRD_CLASSES: dict[int, str] = {
     21: "squirrel",
 }
 
+# Re-link: collapse a ByteTrack id-switch on one stationary animal (the feeder
+# over-count) — a new track whose BIRTH stitches onto a confirmed animal's DEATH
+# (small temporal gap, high box IoU) is the same animal under a new id, not a new
+# one. Fixed constants (not per-clip) so the count stays REPRODUCIBLE — live-bets
+# settles on it. Validated against the hand-counted ground-truth (live-bets docs).
+RELINK_IOU_THRESHOLD: float = 0.4
+RELINK_MAX_GAP_FRAMES: int = 8
+
+
+def _iou(
+    box_a: tuple[float, float, float, float],
+    box_b: tuple[float, float, float, float],
+) -> float:
+    """IoU of two centroid boxes (cx, cy, w, h)."""
+    ax, ay, aw, ah = box_a
+    bx, by, bw, bh = box_b
+    ax1, ay1, ax2, ay2 = ax - aw / 2, ay - ah / 2, ax + aw / 2, ay + ah / 2
+    bx1, by1, bx2, by2 = bx - bw / 2, by - bh / 2, bx + bw / 2, by + bh / 2
+    iw = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    ih = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = iw * ih
+    union = aw * ah + bw * bh - inter
+    return inter / union if union > 0 else 0.0
+
 
 class BirdCounter:
     """Counts unique birds per class, requiring a minimum number of frames
@@ -53,6 +77,15 @@ class BirdCounter:
         # fires cat/dog/bear), so confirmation/total/events key on track_id
         # globally — one animal, one event, regardless of label drift.
         self._confirmed: dict[int, str] = {}
+        # Re-link bookkeeping. `_suppressed` maps a suppressed re-ID track to the
+        # confirmed animal it was absorbed into (so its ongoing frames keep
+        # advancing that animal's death). Per-track birth/death endpoints (frame +
+        # centroid box) are updated on every add() when a full box is available.
+        self._suppressed: dict[int, int] = {}
+        self._first_frame: dict[int, int] = {}
+        self._first_box: dict[int, tuple[float, float, float, float]] = {}
+        self._last_frame: dict[int, int] = {}
+        self._last_box: dict[int, tuple[float, float, float, float]] = {}
 
     def add(
         self,
@@ -61,13 +94,42 @@ class BirdCounter:
         cx: int | None = None,
         cy: int | None = None,
         frame_index: int = 0,
+        w: int | None = None,
+        h: int | None = None,
     ) -> None:
         name = BIRD_CLASSES.get(class_id)
         if name is None:
             return
+        # Endpoint geometry for the re-link, only when a FULL box is available.
+        # Absent -> re-link inactive, behavior identical to v0.4.0.
+        box: tuple[float, float, float, float] | None = None
+        if cx is not None and cy is not None and w is not None and h is not None:
+            box = (float(cx), float(cy), float(w), float(h))
+            if track_id not in self._first_frame:
+                self._first_frame[track_id] = frame_index
+                self._first_box[track_id] = box
+            self._last_frame[track_id] = frame_index
+            self._last_box[track_id] = box
+            if track_id in self._suppressed:
+                target = self._suppressed[track_id]
+                self._last_frame[target] = frame_index
+                self._last_box[target] = box
         new_count = self._frames_by_class[name].get(track_id, 0) + 1
         self._frames_by_class[name][track_id] = new_count
-        if new_count == self.min_frames and track_id not in self._confirmed:
+        if (
+            new_count == self.min_frames
+            and track_id not in self._confirmed
+            and track_id not in self._suppressed
+        ):
+            target = self._link_target(track_id) if box is not None else None
+            if target is not None:
+                # Re-ID of an existing animal: suppress, and seed that animal's
+                # death with this segment's death so the NEXT id in the churn
+                # chain stitches onto a CURRENT endpoint (3a keeps advancing it).
+                self._suppressed[track_id] = target
+                self._last_frame[target] = self._last_frame[track_id]
+                self._last_box[target] = self._last_box[track_id]
+                return
             self._confirmed[track_id] = name
             event: dict = {
                 "at": round(frame_index / self._fps, 3),
@@ -84,6 +146,24 @@ class BirdCounter:
                     event["x"] = round(cx / fw, 4)
                     event["y"] = round(cy / fh, 4)
             self.events.append(event)
+
+    def _link_target(self, track_id: int) -> int | None:
+        """The confirmed animal this track re-IDs, or None. A match needs this
+        track's BIRTH to stitch onto a confirmed animal's DEATH: a short forward
+        gap (1..RELINK_MAX_GAP_FRAMES — excludes co-present same-frame detections)
+        and box IoU >= RELINK_IOU_THRESHOLD. That is a ByteTrack id-switch on one
+        stationary animal, not a new one. Deterministic: first match in
+        insertion order."""
+        b_first = self._first_frame[track_id]
+        b_box = self._first_box[track_id]
+        for other in self._confirmed:
+            gap = b_first - self._last_frame.get(other, -1_000_000)
+            if (
+                1 <= gap <= RELINK_MAX_GAP_FRAMES
+                and _iou(b_box, self._last_box[other]) >= RELINK_IOU_THRESHOLD
+            ):
+                return other
+        return None
 
     def total(self) -> int:
         return len(self._confirmed)
@@ -200,12 +280,13 @@ def count_minframes(
                 clss = r.boxes.cls.int().cpu().tolist()
                 xywh = r.boxes.xywh.cpu().numpy() if r.boxes.xywh is not None else []
                 for k, (tid, cid) in enumerate(zip(ids, clss, strict=False)):
-                    cx = cy = None
+                    cx = cy = bw = bh = None
                     if k < len(xywh):
                         cx, cy = int(xywh[k][0]), int(xywh[k][1])
+                        bw, bh = int(xywh[k][2]), int(xywh[k][3])
                     counter.add(
                         track_id=tid, class_id=cid, cx=cx, cy=cy,
-                        frame_index=frame_count,
+                        w=bw, h=bh, frame_index=frame_count,
                     )
             frame_count += 1
             # duration <= 0 means "no wall-clock cap": process every frame until
@@ -889,8 +970,11 @@ def main(argv: list[str] | None = None) -> int:
                         counter.observe(track_id=tid, class_id=cid,
                                         cx=int(cx), cy=int(cy))
                 else:
-                    for tid, cid in zip(ids, clss):
-                        counter.add(track_id=tid, class_id=cid)
+                    xywh = r.boxes.xywh.cpu().numpy()
+                    for k, (tid, cid) in enumerate(zip(ids, clss)):
+                        cx, cy, bw, bh = (int(v) for v in xywh[k])
+                        counter.add(track_id=tid, class_id=cid, cx=cx, cy=cy,
+                                    w=bw, h=bh, frame_index=frame_count)
 
             annotated = r.plot()
             if use_line and segment is not None:
