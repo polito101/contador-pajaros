@@ -280,12 +280,13 @@ def count_minframes(
                 clss = r.boxes.cls.int().cpu().tolist()
                 xywh = r.boxes.xywh.cpu().numpy() if r.boxes.xywh is not None else []
                 for k, (tid, cid) in enumerate(zip(ids, clss, strict=False)):
-                    cx = cy = None
+                    cx = cy = bw = bh = None
                     if k < len(xywh):
                         cx, cy = int(xywh[k][0]), int(xywh[k][1])
+                        bw, bh = int(xywh[k][2]), int(xywh[k][3])
                     counter.add(
                         track_id=tid, class_id=cid, cx=cx, cy=cy,
-                        frame_index=frame_count,
+                        w=bw, h=bh, frame_index=frame_count,
                     )
             frame_count += 1
             # duration <= 0 means "no wall-clock cap": process every frame until
