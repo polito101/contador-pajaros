@@ -1,4 +1,5 @@
 from contar import BirdCounter, BIRD_CLASSES
+from contar import _iou, RELINK_IOU_THRESHOLD, RELINK_MAX_GAP_FRAMES
 
 
 def test_counter_starts_empty():
@@ -333,9 +334,6 @@ def test_cli_print_loop_handles_single_bird_key(capsys):
     assert "bird" in out
 
 
-from contar import _iou, RELINK_IOU_THRESHOLD, RELINK_MAX_GAP_FRAMES
-
-
 def test_iou_identical_boxes_is_one():
     assert _iou((10, 10, 4, 4), (10, 10, 4, 4)) == 1.0
 
@@ -429,4 +427,16 @@ def test_anchor_f74739485_stationary_animal_counts_one():
         for i in range(5):
             c.add(track_id=tid, class_id=cid, cx=box[0], cy=box[1],
                   w=box[2], h=box[3], frame_index=start + i)
+    assert c.total() == 1
+
+
+def test_ongoing_suppression_advances_absorber_death():
+    # Without the per-frame death-advance (3a), this is total()==2.
+    c = BirdCounter(min_frames=3)
+    _walk(c, 10, 14, 100, 100, 20, 20, start_frame=0, n=3)    # A confirms at f2
+    _walk(c, 11, 14, 100, 100, 20, 20, start_frame=3, n=13)   # B re-IDs A, lives f3..f15
+    assert 11 in c._suppressed
+    # C is born at f17: links ONLY because B's ongoing frames advanced A's death to f15
+    # (gap 17-15=2). Seeded-only death (f5) would give gap 12 > 8 -> C counts fresh.
+    _walk(c, 12, 14, 100, 100, 20, 20, start_frame=17, n=3)
     assert c.total() == 1

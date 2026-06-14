@@ -970,8 +970,11 @@ def main(argv: list[str] | None = None) -> int:
                         counter.observe(track_id=tid, class_id=cid,
                                         cx=int(cx), cy=int(cy))
                 else:
-                    for tid, cid in zip(ids, clss):
-                        counter.add(track_id=tid, class_id=cid)
+                    xywh = r.boxes.xywh.cpu().numpy()
+                    for k, (tid, cid) in enumerate(zip(ids, clss)):
+                        cx, cy, bw, bh = (int(v) for v in xywh[k])
+                        counter.add(track_id=tid, class_id=cid, cx=cx, cy=cy,
+                                    w=bw, h=bh, frame_index=frame_count)
 
             annotated = r.plot()
             if use_line and segment is not None:
