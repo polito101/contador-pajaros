@@ -351,3 +351,22 @@ def test_iou_half_overlap():
 def test_relink_constants_present():
     assert RELINK_IOU_THRESHOLD == 0.4
     assert RELINK_MAX_GAP_FRAMES == 8
+
+
+def test_endpoint_state_recorded_with_box():
+    c = BirdCounter(min_frames=2)
+    c.add(track_id=7, class_id=14, cx=100, cy=50, w=20, h=10, frame_index=3)
+    c.add(track_id=7, class_id=14, cx=102, cy=50, w=20, h=10, frame_index=4)
+    assert c._first_frame[7] == 3
+    assert c._first_box[7] == (100.0, 50.0, 20.0, 10.0)
+    assert c._last_frame[7] == 4
+    assert c._last_box[7] == (102.0, 50.0, 20.0, 10.0)
+
+
+def test_no_box_means_no_endpoint_state_backcompat():
+    c = BirdCounter(min_frames=1)
+    c.add(track_id=1, class_id=14)
+    c.add(track_id=2, class_id=14)
+    assert c.total() == 2
+    assert c._first_frame == {}
+    assert c._last_box == {}

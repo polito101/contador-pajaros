@@ -77,6 +77,15 @@ class BirdCounter:
         # fires cat/dog/bear), so confirmation/total/events key on track_id
         # globally — one animal, one event, regardless of label drift.
         self._confirmed: dict[int, str] = {}
+        # Re-link bookkeeping. `_suppressed` maps a suppressed re-ID track to the
+        # confirmed animal it was absorbed into (so its ongoing frames keep
+        # advancing that animal's death). Per-track birth/death endpoints (frame +
+        # centroid box) are updated on every add() when a full box is available.
+        self._suppressed: dict[int, int] = {}
+        self._first_frame: dict[int, int] = {}
+        self._first_box: dict[int, tuple[float, float, float, float]] = {}
+        self._last_frame: dict[int, int] = {}
+        self._last_box: dict[int, tuple[float, float, float, float]] = {}
 
     def add(
         self,
@@ -85,10 +94,22 @@ class BirdCounter:
         cx: int | None = None,
         cy: int | None = None,
         frame_index: int = 0,
+        w: int | None = None,
+        h: int | None = None,
     ) -> None:
         name = BIRD_CLASSES.get(class_id)
         if name is None:
             return
+        # Endpoint geometry for the re-link, only when a FULL box is available.
+        # Absent -> re-link inactive, behavior identical to v0.4.0.
+        box: tuple[float, float, float, float] | None = None
+        if cx is not None and cy is not None and w is not None and h is not None:
+            box = (float(cx), float(cy), float(w), float(h))
+            if track_id not in self._first_frame:
+                self._first_frame[track_id] = frame_index
+                self._first_box[track_id] = box
+            self._last_frame[track_id] = frame_index
+            self._last_box[track_id] = box
         new_count = self._frames_by_class[name].get(track_id, 0) + 1
         self._frames_by_class[name][track_id] = new_count
         if new_count == self.min_frames and track_id not in self._confirmed:
