@@ -21,6 +21,30 @@ BIRD_CLASSES: dict[int, str] = {
     21: "squirrel",
 }
 
+# Re-link: collapse a ByteTrack id-switch on one stationary animal (the feeder
+# over-count) — a new track whose BIRTH stitches onto a confirmed animal's DEATH
+# (small temporal gap, high box IoU) is the same animal under a new id, not a new
+# one. Fixed constants (not per-clip) so the count stays REPRODUCIBLE — live-bets
+# settles on it. Validated against the hand-counted ground-truth (live-bets docs).
+RELINK_IOU_THRESHOLD: float = 0.4
+RELINK_MAX_GAP_FRAMES: int = 8
+
+
+def _iou(
+    box_a: tuple[float, float, float, float],
+    box_b: tuple[float, float, float, float],
+) -> float:
+    """IoU of two centroid boxes (cx, cy, w, h)."""
+    ax, ay, aw, ah = box_a
+    bx, by, bw, bh = box_b
+    ax1, ay1, ax2, ay2 = ax - aw / 2, ay - ah / 2, ax + aw / 2, ay + ah / 2
+    bx1, by1, bx2, by2 = bx - bw / 2, by - bh / 2, bx + bw / 2, by + bh / 2
+    iw = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    ih = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = iw * ih
+    union = aw * ah + bw * bh - inter
+    return inter / union if union > 0 else 0.0
+
 
 class BirdCounter:
     """Counts unique birds per class, requiring a minimum number of frames

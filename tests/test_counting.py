@@ -331,3 +331,23 @@ def test_cli_print_loop_handles_single_bird_key(capsys):
         print(f"  {key:<10} {n:>4}")
     out = capsys.readouterr().out
     assert "bird" in out
+
+
+from contar import _iou, RELINK_IOU_THRESHOLD, RELINK_MAX_GAP_FRAMES
+
+
+def test_iou_identical_boxes_is_one():
+    assert _iou((10, 10, 4, 4), (10, 10, 4, 4)) == 1.0
+
+
+def test_iou_disjoint_boxes_is_zero():
+    assert _iou((0, 0, 2, 2), (100, 100, 2, 2)) == 0.0
+
+
+def test_iou_half_overlap():
+    assert abs(_iou((0, 0, 4, 4), (2, 0, 4, 4)) - (8 / 24)) < 1e-9
+
+
+def test_relink_constants_present():
+    assert RELINK_IOU_THRESHOLD == 0.4
+    assert RELINK_MAX_GAP_FRAMES == 8
